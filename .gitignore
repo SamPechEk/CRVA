@@ -1,0 +1,17 @@
+# Dependencias y compilaciones
+**/node_modules/
+**/dist/
+**/coverage/
+**/.firebase/
+
+# Configuración local y secretos; las plantillas sí se versionan
+.env
+.env.*
+!.env.example
+*.log
+.DS_Store
+Thumbs.db
+
+# Paquete de entrega local
+/cotizador-velas-app.zip
+**/respaldo-velas-*.json

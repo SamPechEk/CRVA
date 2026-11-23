@@ -1,0 +1,74 @@
+name: Validaciones
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  app:
+    name: Pruebas y compilación
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: cotizador-velas-app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: cotizador-velas-app/package-lock.json
+      - name: Instalar dependencias
+        run: npm ci
+      - name: Pruebas del dominio y formularios
+        run: npm test
+      - name: Comprobar TypeScript y compilar
+        run: npm run build
+      - name: Conservar compilación
+        uses: actions/upload-artifact@v4
+        with:
+          name: cotizador-dist
+          path: cotizador-velas-app/dist/
+          if-no-files-found: error
+          retention-days: 7
+
+  firestore:
+    name: Reglas Firestore
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: cotizador-velas-app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: cotizador-velas-app/package-lock.json
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Instalar dependencias
+        run: npm ci
+      - name: Verificar seguridad y concurrencia con emulador
+        run: npm run test:rules
+      - name: Conservar logs de emulador si falla
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: firestore-logs
+          path: cotizador-velas-app/*debug.log
+          if-no-files-found: ignore
+          retention-days: 7
