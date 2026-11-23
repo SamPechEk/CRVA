@@ -1,7 +1,13 @@
 rules_version = '2';
 service cloud.firestore {
  match /databases/{database}/documents {
-  function authorized() { return request.auth != null && request.auth.token.email_verified == true && request.auth.token.email in ['usuaria1@ejemplo.com','usuaria2@ejemplo.com']; }
+  function verified() { return request.auth != null && request.auth.token.email_verified == true; }
+  function authorized() { return verified() && get(/databases/$(database)/documents/accessUsers/$(request.auth.uid)).data.active == true; }
+  // Membership is administered from Firebase Console / a trusted Admin SDK only.
+  match /accessUsers/{uid} {
+    allow get: if verified() && request.auth.uid == uid;
+    allow list, create, update, delete: if false;
+  }
   function nonnegative(v) { return v is string && v.matches('^[0-9]+([.][0-9]+)?$') && float(v) >= 0; }
   function margin(v) { return nonnegative(v) && float(v) < 1; }
   function retail() { return float(getAfter(/databases/$(database)/documents/settings/global).data.defaultMarginPct); }

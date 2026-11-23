@@ -29,7 +29,7 @@ export default function LoginPage() {
         <h2>Bienvenida a tu estudio</h2>
         {services.configured ? (
           <>
-            <p>Acceso para las dos cuentas autorizadas.</p>
+            <p>Acceso exclusivo para cuentas autorizadas.</p>
             <form
               onSubmit={(e) => {
                 e.preventDefault();
@@ -67,8 +67,8 @@ export default function LoginPage() {
         ) : (
           <>
             <p>
-              Configura tu proyecto Firebase y las dos cuentas autorizadas en{" "}
-              <code>.env</code> para comenzar.
+              Configura la conexión de tu proyecto Firebase en <code>.env</code>{" "}
+              para comenzar.
             </p>
             <p>
               Puedes explorar primero con los datos exactos del Excel v4,

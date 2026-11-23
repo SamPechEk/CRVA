@@ -34,30 +34,58 @@ afterAll(async () => {
 it.skipIf(!enabled)(
   "restringe correos verificados, valida insumos y congela cotizaciones",
   async () => {
+    await env.withSecurityRulesDisabled(async (context) => {
+      const db = context.firestore();
+      await setDoc(doc(db, "accessUsers", "first"), { active: true });
+      await setDoc(doc(db, "accessUsers", "additional"), { active: true });
+      await setDoc(doc(db, "accessUsers", "disabled"), { active: false });
+      await setDoc(doc(db, "accessUsers", "unverified"), { active: true });
+    });
     const a = env
-        .authenticatedContext("first", {
-          email: "usuaria1@ejemplo.com",
-          email_verified: true,
-        })
-        .firestore(),
-      bad = env
-        .authenticatedContext("other", {
-          email: "intruso@ejemplo.com",
-          email_verified: true,
-        })
-        .firestore(),
-      unverified = env
-        .authenticatedContext("unverified", {
-          email: "usuaria1@ejemplo.com",
-          email_verified: false,
-        })
-        .firestore();
+      .authenticatedContext("first", {
+        email: "member@example.com",
+        email_verified: true,
+      })
+      .firestore();
+    const extra = env
+      .authenticatedContext("additional", {
+        email: "another@example.com",
+        email_verified: true,
+      })
+      .firestore();
+    const bad = env
+      .authenticatedContext("other", {
+        email: "member@example.com",
+        email_verified: true,
+      })
+      .firestore();
+    const disabled = env
+      .authenticatedContext("disabled", {
+        email: "disabled@example.com",
+        email_verified: true,
+      })
+      .firestore();
+    const unverified = env
+      .authenticatedContext("unverified", {
+        email: "unverified@example.com",
+        email_verified: false,
+      })
+      .firestore();
     await assertFails(getDoc(doc(bad, "settings", "global")));
+    await assertFails(getDoc(doc(disabled, "settings", "global")));
     await assertFails(getDoc(doc(unverified, "settings", "global")));
     await assertFails(
       getDoc(
         doc(env.unauthenticatedContext().firestore(), "settings", "global"),
       ),
+    );
+    await assertSucceeds(getDoc(doc(a, "accessUsers", "first")));
+    await assertFails(getDoc(doc(a, "accessUsers", "additional")));
+    await assertFails(
+      setDoc(doc(bad, "accessUsers", "other"), { active: true }),
+    );
+    await assertFails(
+      updateDoc(doc(a, "accessUsers", "first"), { active: false }),
     );
     await assertSucceeds(setDoc(doc(a, "settings", "global"), seedV4.settings));
     await assertFails(
@@ -78,7 +106,7 @@ it.skipIf(!enabled)(
       "0",
       null,
       "",
-      "usuaria1@ejemplo.com",
+      "member@example.com",
       "Menudeo",
     );
     await assertSucceeds(setDoc(doc(a, "quotes", q.id), q));
@@ -90,6 +118,13 @@ it.skipIf(!enabled)(
       }),
     );
     await assertFails(setDoc(doc(bad, "quotes", q.id), q));
+    await assertSucceeds(getDoc(doc(extra, "settings", "global")));
+    await env.withSecurityRulesDisabled(async (context) => {
+      await updateDoc(doc(context.firestore(), "accessUsers", "additional"), {
+        active: false,
+      });
+    });
+    await assertFails(getDoc(doc(extra, "settings", "global")));
     const ref = doc(a, "counters", "quotes");
     await setDoc(ref, { year: 2026, seq: 0 });
     const next = () =>

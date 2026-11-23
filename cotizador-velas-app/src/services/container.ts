@@ -15,7 +15,7 @@ if (demo) {
   repos = localRepositories();
 } else if (configured) {
   const client = createFirebaseClient();
-  auth = firebaseAuth(client.auth);
+  auth = firebaseAuth(client.auth, client.db);
   repos = firestoreRepositories(client.db);
 }
 export const services = { auth, repos, media: cloudinary, demo, configured };

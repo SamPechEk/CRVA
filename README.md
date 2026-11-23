@@ -46,4 +46,4 @@ GitHub Actions ejecuta pruebas y compilación, además de una comprobación inde
 - Las plantillas de incidencias y pull requests están en español.
 - `.gitignore` excluye credenciales, dependencias, compilaciones y respaldos locales de configuración. Sólo se publica `.env.example`, sin secretos.
 
-Los dos correos de producción deben sustituirse tanto en las reglas como en `.env`. Configura Firebase y Cloudinary siguiendo la guía antes de publicar. El repositorio no contiene credenciales ni un proyecto de producción preconfigurado.
+El acceso se administra en Firebase mediante `accessUsers/{uid}` con `active: true`. No hay listas de correos ni límites de usuarios compilados en la aplicación. Configura Firebase y Cloudinary siguiendo la guía antes de publicar. El repositorio no contiene credenciales ni un proyecto de producción preconfigurado.

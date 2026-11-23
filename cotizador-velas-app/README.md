@@ -17,9 +17,9 @@ Abre la URL que imprime Vite. Sin configuración remota, la pantalla de acceso p
 ## Configurar Firebase Spark sin tarjeta
 
 1. Crea un proyecto en Firebase Console y conserva el plan Spark. Registra una app web. Copia API key, Auth domain, Project ID y App ID a las variables `VITE_FIREBASE_*` de `.env`.
-2. Activa Authentication → Sign-in method → Email/Password y/o Google. Crea las dos cuentas y verifica sus correos (Google entrega correo verificado). La app no crea cuentas públicas ni contiene contraseñas. Añade los dominios de Hosting y localhost a Authorized domains cuando corresponda.
+2. Activa Authentication → Sign-in method → Email/Password y/o Google. Crea las cuentas que necesites y verifica sus correos (Google entrega correo verificado). La app no crea cuentas públicas ni contiene contraseñas. Añade los dominios de Hosting y localhost a Authorized domains cuando corresponda.
 3. Crea Cloud Firestore en modo producción y elige su región. No actives Storage, Functions ni facturación para este proyecto.
-4. **Sustituye los dos correos de ejemplo en `firestore.rules` por los dos correos reales verificados**, en minúsculas. Configura exactamente la misma pareja en `VITE_ALLOWED_EMAILS`, separados por coma. La aplicación requiere dos valores distintos. No publiques las reglas con los correos de ejemplo.
+4. Publica `firestore.rules` y autoriza cada cuenta en Firestore con un documento `accessUsers/{uid}` que contenga `active: true` (booleano). El UID se copia de Authentication → Usuarios. Consulta el procedimiento detallado más abajo. No se usa `VITE_ALLOWED_EMAILS`: las variables de entorno sólo configuran las conexiones, y las reglas verifican la membresía en Firebase en cada solicitud.
 5. Instala dependencias y usa el CLI incluido:
 
 ```sh
@@ -33,6 +33,20 @@ npx firebase deploy --only hosting
 6. Entra con una cuenta autorizada y pulsa **Cargar datos iniciales del Excel (v4)**. Es una transacción: no sobreescribe catálogos existentes. Se incluyen únicamente los 18 insumos, cuatro modelos, seis fijos y cuatro tarifas del Excel. Clientes, fotos, proveedores e identidad comercial quedan vacíos.
 
 Las claves web de Firebase son configuración pública; las reglas constituyen la autorización. Nunca pongas credenciales de servicio en variables `VITE_*`. `.env` se excluye de Git.
+
+## Administrar acceso desde Firebase
+
+El correo no se guarda en el código ni en variables de entorno. Authentication verifica la identidad; Firestore concede el permiso por UID, que es estable para esa cuenta.
+
+1. En **Authentication → Usuarios**, crea la cuenta con Correo/contraseña (elige su contraseña directamente en Firebase, nunca en el chat), o deja que inicie sesión con Google para que aparezca en la lista. Un primer intento de Google sin permiso se rechaza en el cotizador pero deja la identidad creada en Authentication.
+2. Copia el **UID** de la cuenta. En **Firestore → Datos**, crea la colección **`accessUsers`** si aún no existe.
+3. Crea un documento cuyo ID sea exactamente ese UID y agrega **`active`**, tipo **boolean**, valor **`true`**. No uses la cadena de texto `"true"`.
+4. El usuario debe tener el correo verificado. Con Correo/contraseña, el primer acceso desde el cotizador envía un enlace de verificación y cierra la sesión; abre ese enlace en el buzón y vuelve a entrar. Si se limita el envío por muchos intentos, espera antes de reintentarlo. Un correo Hotmail puede usar este método; Google requiere que el correo esté asociado a una cuenta de Google.
+5. Para agregar otra persona, repite los pasos con su propio UID. Para revocar acceso, cambia **`active` a `false`**. No necesitas editar código, variables de entorno ni reconstruir/publicar la aplicación.
+
+La colección se administra sólo desde Firebase Console con permisos administrativos (o un Admin SDK de confianza). La aplicación no puede crear ni editar permisos, y cada usuario sólo puede leer su propio documento de acceso. Las reglas exigen además correo verificado para cualquier dato de negocio. Cambiar un correo no transfiere automáticamente el permiso a otro UID. No agregues documentos con direcciones de correo como ID.
+
+Firestore evalúa el permiso en las solicitudes al servidor. Los datos previamente descargados al navegador no pueden revocarse retroactivamente. Los respaldos de la app excluyen Auth y `accessUsers`: restaurar un catálogo nunca concede acceso a nuevos usuarios. Mantén un registro administrativo de los UIDs autorizados por separado.
 
 ## Cloudinary Free
 
@@ -51,7 +65,7 @@ Requiere Java 21+. Usa un proyecto demo para evitar acceso accidental a producci
 npx firebase emulators:start --project demo-cotizador
 ```
 
-Configura `VITE_USE_FIREBASE_EMULATORS=true`, `VITE_FIREBASE_PROJECT_ID=demo-cotizador`, un API key de prueba no vacío y `VITE_FIREBASE_AUTH_DOMAIN=demo-cotizador.firebaseapp.com`. Mantén `VITE_DATA_PROVIDER=firebase`. En Auth Emulator crea dos usuarios con los correos de las reglas y `emailVerified=true`. Reinicia Vite al cambiar `.env`.
+Configura `VITE_USE_FIREBASE_EMULATORS=true`, `VITE_FIREBASE_PROJECT_ID=demo-cotizador`, un API key de prueba no vacío y `VITE_FIREBASE_AUTH_DOMAIN=demo-cotizador.firebaseapp.com`. Mantén `VITE_DATA_PROVIDER=firebase`. En Auth Emulator crea usuarios con `emailVerified=true`; desde la UI del emulador agrega sus documentos `accessUsers/{uid}` con `active: true`. Reinicia Vite al cambiar `.env`.
 
 Puertos: Auth 9099, Firestore 8787, Hosting 5000, UI 4001, hub 4401, logging 4501. Los mismos puertos están en `firebase.json`, el adaptador y la suite de reglas. Nunca despliegues con la variable de emuladores activada.
 
@@ -75,13 +89,13 @@ Si tu entorno tiene el home de sólo lectura, configura `npm_config_cache=/tmp/n
 
 ## Respaldo y restauración
 
-Descarga un JSON completo desde Parámetros antes de cambios importantes. Incluye todas las colecciones operativas, configuración y contador. No incluye binarios de imágenes ni cuentas Auth: las URLs siguen dependiendo de Cloudinary.
+Descarga un JSON completo desde Parámetros antes de cambios importantes. Incluye todas las colecciones operativas, configuración y contador. No incluye binarios de imágenes, cuentas Auth ni permisos `accessUsers`: las URLs siguen dependiendo de Cloudinary.
 
 La restauración valida Zod, referencias y coherencia antes de solicitar escribir **RESTAURAR**. Es una restauración por IDs: actualiza catálogo/configuración y añade documentos faltantes, conserva documentos no incluidos. Nunca modifica el snapshot de una cotización ya existente; si tiene el mismo ID y contenido interno diferente, detiene la operación antes de escribir. Los estados actuales de cotizaciones existentes se conservan. En Firebase reserva primero el contador sin retrocederlo y escribe lotes de hasta 400 documentos; no es una transacción global. Evita otras ediciones durante la restauración. Si se interrumpe, conserva el archivo y repite: las escrituras por ID son idempotentes. Conserva siempre un respaldo anterior. El modo local sigue la misma política de combinar por IDs y conservar snapshots.
 
 ## Seguridad y límites
 
-Las reglas rechazan cuentas no autorizadas/no verificadas, borrado físico de modelos/insumos/cotizaciones y cambios al snapshot de una cotización. Validan campos numéricos, categorías, roles, IVA, lote y margen de tarifas frente a Menudeo. La lógica de referencias cruzadas de recetas, sumas de mezcla, escalones completos y fórmulas se valida en el dominio/repositorios del cliente. Firestore Rules no ejecuta consultas inversas ni recorre listas arbitrarias: no equivale a constraints SQL para esos invariantes ante escritura manual de una cuenta autorizada. Las dos cuentas son administradoras de confianza; no edites documentos directamente. Para un modelo de usuarios hostiles se requiere otro diseño de datos/servicio autoritativo. Los folios concurrentes de la aplicación se asignan exclusivamente con `runTransaction` sobre `counters/quotes`; las reglas no distinguen una transacción SDK de otras escrituras atómicas.
+Las reglas rechazan cuentas no autorizadas/no verificadas, borrado físico de modelos/insumos/cotizaciones y cambios al snapshot de una cotización. Validan campos numéricos, categorías, roles, IVA, lote y margen de tarifas frente a Menudeo. La lógica de referencias cruzadas de recetas, sumas de mezcla, escalones completos y fórmulas se valida en el dominio/repositorios del cliente. Firestore Rules no ejecuta consultas inversas ni recorre listas arbitrarias: no equivale a constraints SQL para esos invariantes ante escritura manual de una cuenta autorizada. Las cuentas activas son operadoras de confianza; no edites documentos directamente. Para un modelo de usuarios hostiles se requiere otro diseño de datos/servicio autoritativo. Los folios concurrentes de la aplicación se asignan exclusivamente con `runTransaction` sobre `counters/quotes`; las reglas no distinguen una transacción SDK de otras escrituras atómicas.
 
 La restauración/exportación completa hace lecturas/escrituras proporcionales al tamaño del respaldo; úsala con conciencia de las cuotas Spark. Los catálogos se cargan una vez cada cinco minutos y se invalidan al mutar. El historial usa índices compuestos incluidos. No se han configurado una cuenta Firebase real ni un preset Cloudinary en este repositorio: requieren los valores del negocio. No se ha publicado ningún sitio.
 

@@ -4,7 +4,7 @@ El dominio y la UI dependen de los puertos. Mantén sus contratos y los strings 
 
 ## Contratos y cableado
 
-1. `httpApi/auth.adapter.ts`: implementa `IAuth` con sesión HTTP, cookie `HttpOnly; Secure; SameSite` y endpoint `/session`. Provee el mismo usuario `{uid,email,emailVerified}` y suscripción a cambios. La autorización real de exactamente dos identidades ocurre en el servidor, no sólo en React.
+1. `httpApi/auth.adapter.ts`: implementa `IAuth` con sesión HTTP, cookie `HttpOnly; Secure; SameSite` y endpoint `/session`. Provee el mismo usuario `{uid,email,emailVerified}` y suscripción a cambios. La autorización ocurre en el servidor con una tabla de membresías activas por UID, equivalente a `accessUsers`; nunca con una lista de correos compilada en React.
 2. `httpApi/repositories.adapter.ts`: implementa `Repositories` completo. Listar/guardar/desactivar catálogos, mezcla atómica, guardar tarifas y parámetros conjuntamente, clientes, páginas de 25 cotizaciones, alta de snapshot, estado, backup y seed idempotente. Devuelve los mismos DTOs o rechaza con mensajes de negocio.
 3. `serverStorage/media.adapter.ts`: implementa `IMediaStorage.uploadImage(File)` por multipart autenticado y `getOptimizedUrl(url,mode)`. Conserva la respuesta `{imageUrl,imagePublicId}`. `imagePublicId` puede ser un UUID de archivo propio. Para PDF configura CORS para el origen de la aplicación y devuelve JPG. Valida MIME por contenido, ≤5 MB, nombres aleatorios, rutas fuera de la raíz ejecutable; evita path traversal. Genera tamaños web/PDF en servidor y limpia huérfanos con referencias comprobadas.
 4. Agrega `http_api` y `server_fs` al esquema de `src/config/env.ts`, variables de URL de API y las ramas correspondientes de `src/services/container.ts`. Éste es el único cableado que cambia además de los nuevos adaptadores. Mantén Firebase como opción para transición.
@@ -15,6 +15,10 @@ El dominio y la UI dependen de los puertos. Mantén sus contratos y los strings 
 Valores DECIMAL se envían desde el driver como **strings**, nunca `Number`. Configure UTC para conexión y sesión. `createdAt/updatedAt` del DTO se serializan con `toISOString()`. IDs semilla como `INS-01` caben en `VARCHAR(36)`; no asumas que todos son UUID.
 
 ```sql
+CREATE TABLE app_access_users (
+ user_uid VARCHAR(128) PRIMARY KEY,
+ active BOOLEAN NOT NULL DEFAULT FALSE
+);
 CREATE TABLE settings (
  id VARCHAR(36) PRIMARY KEY,
  currency_code CHAR(3) NOT NULL DEFAULT 'MXN',
@@ -124,9 +128,9 @@ Añade CHECK de no negativos a todos los tiempos y cantidades. El repositorio SQ
 ## Traslado de datos y corte
 
 1. Ejecuta pruebas del dominio sin cambios y conserva el Excel v4 como referencia.
-2. Exporta JSON completo desde Firebase. Respalda también las imágenes originales desde Cloudinary y las identidades autorizadas por un canal administrativo.
+2. Exporta JSON completo desde Firebase. Respalda también las imágenes originales desde Cloudinary y las identidades y membresías autorizadas por un canal administrativo.
 3. Importa respetando IDs y orden de claves foráneas: settings/materials/models/recipes/tiers/fixed/clients/quotes/items/breakdown/counters. Si un cliente ya fue eliminado, usa client_id NULL y preserva client_snapshot.
 4. Migra imágenes al nuevo servidor y mapea URLs, conservando copias de recursos referenciados por snapshots anteriores; no reescribas snapshots sin un proceso explícito de migración auditado.
 5. Ejecuta la misma batería de contratos contra ambos adaptadores: 18 insumos, cuatro modelos, tarifas, mezcla, snapshots, paginación, duplicado, restricciones de bajas, backup y dos altas concurrentes con folios distintos.
 6. Configura providers HTTP/archivos en una copia de la app y valida Auth, CORS, PDF con foto y navegación móvil/escritorio. Sustituye persistencia offline por IndexedDB/cola propia si se quiere mantener ese extra; los puertos no exponen tipos de Firebase.
-7. Congela escrituras de ambas usuarias durante exportación final/importación, compara conteos, sumas y último folio, cambia Hosting/API y abre la operación. Conserva el respaldo y un plan de reversión; nunca dejes dos sistemas emitiendo folios al mismo tiempo.
+7. Congela escrituras de los usuarios durante exportación final/importación, compara conteos, sumas y último folio, cambia Hosting/API y abre la operación. Conserva el respaldo y un plan de reversión; nunca dejes dos sistemas emitiendo folios al mismo tiempo.

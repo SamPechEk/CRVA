@@ -4,44 +4,78 @@ import {
   signInWithPopup,
   GoogleAuthProvider,
   signOut,
+  sendEmailVerification,
   type Auth,
+  type User as FirebaseUser,
 } from "firebase/auth";
+import { doc, getDoc, type Firestore } from "firebase/firestore";
 import type { IAuth } from "../../ports/auth.port";
-import { allowedEmails } from "../../config/env";
-export function firebaseAuth(auth: Auth): IAuth {
+import type { User } from "../../domain/types";
+
+export function firebaseAuth(auth: Auth, db: Firestore): IAuth {
+  async function authorizedUser(user: FirebaseUser): Promise<User> {
+    if (!user.emailVerified || !user.email)
+      throw Error("Verifica tu correo para entrar.");
+    const membership = await getDoc(doc(db, "accessUsers", user.uid));
+    if (!membership.exists() || membership.data().active !== true)
+      throw Error(
+        "Tu cuenta aún no tiene acceso al cotizador. Solicita su habilitación en Firebase.",
+      );
+    return { uid: user.uid, email: user.email, emailVerified: true };
+  }
+  async function finishSignIn(user: FirebaseUser) {
+    try {
+      if (!user.emailVerified) {
+        await sendEmailVerification(user);
+        throw Error(
+          "Te enviamos un enlace de verificación. Revisa tu correo y vuelve a entrar después de verificarlo.",
+        );
+      }
+      await authorizedUser(user);
+    } catch (error) {
+      await signOut(auth);
+      throw error;
+    }
+  }
   return {
     observe(fn) {
-      return onAuthStateChanged(auth, (user) => {
-        if (
-          user &&
-          user.emailVerified &&
-          allowedEmails.includes(user.email?.toLowerCase() ?? "")
-        ) {
-          fn({ uid: user.uid, email: user.email!, emailVerified: true });
-        } else {
+      let generation = 0,
+        live = true;
+      const unsubscribe = onAuthStateChanged(auth, (user) => {
+        const current = ++generation;
+        if (!user || !user.emailVerified) {
           fn(null);
-          if (user) void signOut(auth);
+          return;
         }
+        void authorizedUser(user)
+          .then((value) => {
+            if (
+              live &&
+              current === generation &&
+              auth.currentUser?.uid === user.uid
+            )
+              fn(value);
+          })
+          .catch(() => {
+            if (live && current === generation) {
+              fn(null);
+              if (auth.currentUser?.uid === user.uid) void signOut(auth);
+            }
+          });
       });
+      return () => {
+        live = false;
+        generation++;
+        unsubscribe();
+      };
     },
     async signIn(email, password) {
       const { user } = await signInWithEmailAndPassword(auth, email, password);
-      if (
-        !user.emailVerified ||
-        !allowedEmails.includes(user.email?.toLowerCase() ?? "")
-      ) {
-        await signOut(auth);
-        throw Error(
-          "Acceso denegado. Usa uno de los dos correos autorizados y verifica tu correo.",
-        );
-      }
+      await finishSignIn(user);
     },
     async signInGoogle() {
       const { user } = await signInWithPopup(auth, new GoogleAuthProvider());
-      if (!allowedEmails.includes(user.email?.toLowerCase() ?? "")) {
-        await signOut(auth);
-        throw Error("Este correo no está autorizado");
-      }
+      await finishSignIn(user);
     },
     signOut: () => signOut(auth),
   };
